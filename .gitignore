@@ -1,0 +1,11 @@
+# Özel anahtarlar (SİZİN İÇİN EN ÖNEMLİSİ)
+client_secret.json
+token.json
+
+# Video klasörleri
+ham_videolar/
+islenmis_videolar/
+
+# Python gereksizleri
+__pycache__/
+*.pyc
