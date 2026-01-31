@@ -17,32 +17,28 @@ from google.auth.transport.requests import Request
 # ======================
 INPUT_FOLDER = "ham_videolar"
 OUTPUT_FOLDER = "islenenler"
-
 CLIENT_SECRET_FILE = "client_secret.json"
 TOKEN_FILE = "token.pickle"
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
-MAX_SHORT_DURATION = 60        # saniye
-UPLOAD_INTERVAL = 8 * 60 * 60  # 8 saat
-
+MAX_SHORT_DURATION = 60
+UPLOAD_INTERVAL = 8 * 60 * 60
 
 os.makedirs(INPUT_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 
 # ======================
-# OAUTH 2.0 (TOKEN OLUŞTURMA)
+# YOUTUBE OAUTH
 # ======================
 def get_youtube_service():
     creds = None
 
-    # Daha önce token varsa oku
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, "rb") as f:
             creds = pickle.load(f)
 
-    # Token yoksa / geçersizse
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -51,9 +47,8 @@ def get_youtube_service():
                 CLIENT_SECRET_FILE,
                 SCOPES
             )
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(port=0, prompt="select_account")
 
-        # token.pickle oluşturulur
         with open(TOKEN_FILE, "wb") as f:
             pickle.dump(creds, f)
 
@@ -90,10 +85,7 @@ def remove_silence(clip, threshold=0.02, min_chunk=0.3):
         if end - start >= min_chunk:
             chunks.append(clip.subclip(start, end))
 
-    if not chunks:
-        return clip
-
-    return concatenate_videoclips(chunks)
+    return concatenate_videoclips(chunks) if chunks else clip
 
 
 # ======================
@@ -119,31 +111,6 @@ def to_vertical_short(clip):
 
 
 # ======================
-# VIDEO İŞLEME
-# ======================
-def process_video(video_path):
-    clip = VideoFileClip(video_path)
-
-    clip = remove_silence(clip)
-    clip = to_vertical_short(clip)
-
-    output_path = os.path.join(
-        OUTPUT_FOLDER,
-        "PROCESSED_" + os.path.basename(video_path)
-    )
-
-    clip.write_videofile(
-        output_path,
-        fps=30,
-        codec="libx264",
-        audio_codec="aac"
-    )
-
-    clip.close()
-    return output_path
-
-
-# ======================
 # YOUTUBE UPLOAD
 # ======================
 def upload_to_youtube(youtube, file_path):
@@ -153,7 +120,7 @@ def upload_to_youtube(youtube, file_path):
     body = {
         "snippet": {
             "title": f"{title_base} #shorts",
-            "description": "Yapay zeka ile otomatik yüklenmiştir.",
+            "description": "Yapay zeka ile otomatik oluşturulmuş oyun klibi.",
             "categoryId": "20"
         },
         "status": {
@@ -174,11 +141,11 @@ def upload_to_youtube(youtube, file_path):
     )
 
     response = request.execute()
-    print("Yüklendi! Video ID:", response["id"])
+    print("Video yüklendi! ID:", response["id"])
 
 
 # ======================
-# OTOMASYON DÖNGÜSÜ
+# ANA OTOMASYON
 # ======================
 def start_automation():
     youtube = get_youtube_service()
@@ -190,26 +157,43 @@ def start_automation():
         ]
 
         if not videos:
-            print("Klasör boş, bekleniyor...")
+            print("Klasör boş, yeni video bekleniyor...")
             time.sleep(60)
             continue
 
-        for video in videos[:1]:  # günde 3 için → 3 yap
+        for video in videos[:1]:
             input_path = os.path.join(INPUT_FOLDER, video)
 
             try:
                 print("İşleniyor:", video)
-                processed = process_video(input_path)
-                upload_to_youtube(youtube, processed)
 
+                clip = VideoFileClip(input_path)
+                processed_clip = to_vertical_short(
+                    remove_silence(clip)
+                )
+
+                output_path = os.path.join(
+                    OUTPUT_FOLDER,
+                    "PROCESSED_" + video
+                )
+
+                processed_clip.write_videofile(
+                    output_path,
+                    fps=30,
+                    codec="libx264",
+                    audio_codec="aac"
+                )
+
+                clip.close()
+
+                upload_to_youtube(youtube, output_path)
                 os.remove(input_path)
-                print("Başarıyla tamamlandı.")
 
+                print("Tamamlandı. 8 saat bekleniyor...")
                 time.sleep(UPLOAD_INTERVAL)
 
             except Exception as e:
                 print("HATA:", e)
-                print("Video silinmedi.")
                 time.sleep(300)
 
 
